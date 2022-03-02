@@ -2,32 +2,43 @@
 
 
 
-httpbis                                                          M. Duke
+HTTP                                                             M. Duke
 Internet-Draft                                                    Google
-Intended status: Standards Track                              Y. N. Here
-Expires: 2 September 2022                         Your Organization Here
-                                                            1 March 2022
+Intended status: Standards Track                               L. Pardue
+Expires: 3 September 2022                                     Cloudflare
+                                                            2 March 2022
 
 
                  An Alt-Svc Parameter for QUIC Versions
-                draft-duke-httpbis-quic-version-alt-svc
+             draft-duke-httpbis-quic-version-alt-svc-latest
 
 Abstract
 
-   TODO Abstract
+   The HTTP Alternative Services (Alt-Svc) header informs clients of
+   alternate locations of the same resource.  Among its fields, it
+   includes the Application Layer Protocol Negotiation (ALPN) codepoint
+   of those locations.  When the ALPN is "h3", that indicates to the
+   client that the resource can be accessed via the QUIC protocol.
+   However, without a priori knowledge of the QUIC version in use,
+   clients might incur a round-trip latency penalty to complete QUIC
+   version negotiation, or forfeit desirable properties of a QUIC
+   version.  This document specifies a new parameter for the Alt-Svc
+   header that specifies the supported QUIC versions at the alternate
+   location, substantially reducing the chance of this penalty.
 
 About This Document
 
    This note is to be removed before publishing as an RFC.
 
    The latest revision of this draft can be found at
-   https://example.com/LATEST.  Status information for this document may
-   be found at https://datatracker.ietf.org/doc/draft-duke-httpbis-quic-
-   version-alt/.
+   https://martinduke.github.io/quic-version-alt-svc-parameter/draft-
+   duke-httpbis-quic-version-alt-svc.html.  Status information for this
+   document may be found at https://datatracker.ietf.org/doc/draft-duke-
+   httpbis-quic-version-alt-svc/.
 
-   Discussion of this document takes place on the httpbis WG Working
-   Group mailing list (mailto:ietf-http-wg@w3.org), which is archived at
-   https://example.com/WG.
+   Discussion of this document takes place on the HTTP Working Group
+   mailing list (mailto:ietf-http-wg@w3.org), which is archived at
+   https://lists.w3.org/Archives/Public/ietf-http-wg/.
 
    Source for this draft and an issue tracker can be found at
    https://github.com/martinduke/quic-version-alt-svc-parameter.
@@ -47,7 +58,7 @@ Status of This Memo
    time.  It is inappropriate to use Internet-Drafts as reference
    material or to cite them other than as "work in progress."
 
-   This Internet-Draft will expire on 2 September 2022.
+   This Internet-Draft will expire on 3 September 2022.
 
 Copyright Notice
 
@@ -67,15 +78,52 @@ Table of Contents
 
    1.  Introduction
    2.  Conventions and Definitions
-   3.  Security Considerations
-   4.  IANA Considerations
-   5.  Normative References
+   3.  The quicv Parameter
+   4.  Security Considerations
+   5.  IANA Considerations
+   6.  References
+     6.1.  Normative References
+     6.2.  Informative References
    Acknowledgments
    Authors' Addresses
 
 1.  Introduction
 
-   TODO Introduction
+   The HTTP Alterative Services field [ALTSVC] allows an HTTP server to
+   inform the client of other locations to access a resource, including
+   via a different protocol.  A client might connect using the protocol
+   with the highest probability success, but prefer the properties of
+   another.  Note that HTTP/2 [I-D.ietf-httpbis-http2bis] recommends
+   servers send Alt-Svc in an ALTSVC frame, although the field is valid.
+
+   In particular, Alt-Svc includes a codepoint from the Application-
+   Layer Protocol Negotiation (ALPN) TLS extension [RFC7301].
+   Originally intend to allow multiple applications to utilize TLS or
+   DTLS on the same IP address and TCP or UDP port, ALPN can also
+   usefully identify the transport in an Alt-Svc context.  The "h3" ALPN
+   informs the client that it can use HTTP/3 [I-D.ietf-quic-http] for
+   access, which in turn requires the QUIC transport protocol [RFC8999].
+
+   QUIC is versioned.  A client and server that both support a QUIC
+   version can, through a negotiation process, geenrally agree on that
+   version in no more than one round-trip.  However, to avoid that
+   penalty clients might use the most commonly deployed QUIC version
+   (e.g. version 1 [RFC9000]), rather than the version with the most
+   desirable properties for the client's use case.
+
+   One solution is to register new ALPN codepoints for new QUIC
+   versions.  However, this might complicate deployment of new versions
+   and deprecation of old ones: architecturally, an application should
+   provide its ALPN to its QUIC implementation.  In this case, fully
+   deploying a new version in that implementation would require updating
+   all applications that use it.
+
+   Instead, this document specifies an Alt-Svc parameter that lists the
+   QUIC versions available to serve the resource.  Clients that do not
+   understand this parameter might default to the most likely version,
+   and/or incur a round-trip penalty in the event of a mismatch.
+   Clients that do process the parameter will connect successfully using
+   the most desirable version with high probability.
 
 2.  Conventions and Definitions
 
@@ -85,15 +133,57 @@ Table of Contents
    BCP 14 [RFC2119] [RFC8174] when, and only when, they appear in all
    capitals, as shown here.
 
-3.  Security Considerations
+   This document uses the Augmented BNF defined in [RFC5234] and
+   structured fields defined in [RFC8941].
 
-   TODO Security
+3.  The quicv Parameter
 
-4.  IANA Considerations
+   This document specifies the "quicv" parameter, which lists the QUIC
+   versions supported by an endpoint.
 
-   This document has no IANA actions.
+   parameter = param-key "=" param-value param-key = "quicv" param-value
+   = version 1*( OWS, "," OWS version) version = 8(HEXDIG)
 
-5.  Normative References
+   The "version" field is the hexadecimal representation of the version
+   field in a QUIC long header, as indicated in [RFC8999].
+
+   Note that each parameter applies to a single entry in the Alt-Svc
+   list.  Servers MUST NOT append a quicv parameter to an ALPN that does
+   not potentially utilize QUIC.
+
+   If the Alt-Svc information resolves to a server pool that
+   inconsistenly supports different QUIC versions, the parameter SHOULD
+   only advertise versions that are supported throughout the pool.
+
+4.  Security Considerations
+
+   This document inherits the security considerations of [ALTSVC],
+   especially the implications of "Changing Protocols" in Section 9.3.
+   There are few protocol properties guaranteed to hold across all QUIC
+   versions, so endpoints should be aware what capabilities are
+   intrinsic to the QUIC versions they are advertising.
+
+   This parameter reveals capabilities of the described server, but this
+   information is already available by inducing the server to generate a
+   QUIC version negotiation packet.
+
+5.  IANA Considerations
+
+   Please add this entry ot the HTTP Alt-Svc Parameter Registry:
+
+   Alt-Svc Parameter: quicv
+
+   Reference: This document
+
+6.  References
+
+6.1.  Normative References
+
+   [ALTSVC]   Bishop, M. and M. Thomson, "HTTP Alternative Services",
+              Work in Progress, Internet-Draft, draft-ietf-httpbis-
+              rfc7838bis-00, 31 August 2021,
+              <https://datatracker.ietf.org/doc/html/draft-ietf-httpbis-
+              rfc7838bis-00>.
 
    [RFC2119]  Bradner, S., "Key words for use in RFCs to Indicate
               Requirement Levels", BCP 14, RFC 2119,
@@ -103,6 +193,44 @@ Table of Contents
    [RFC8174]  Leiba, B., "Ambiguity of Uppercase vs Lowercase in RFC
               2119 Key Words", BCP 14, RFC 8174, DOI 10.17487/RFC8174,
               May 2017, <https://www.rfc-editor.org/rfc/rfc8174>.
+
+   [RFC5234]  Crocker, D., Ed. and P. Overell, "Augmented BNF for Syntax
+              Specifications: ABNF", STD 68, RFC 5234,
+              DOI 10.17487/RFC5234, January 2008,
+              <https://www.rfc-editor.org/rfc/rfc5234>.
+
+   [RFC8941]  Nottingham, M. and P-H. Kamp, "Structured Field Values for
+              HTTP", RFC 8941, DOI 10.17487/RFC8941, February 2021,
+              <https://www.rfc-editor.org/rfc/rfc8941>.
+
+6.2.  Informative References
+
+   [I-D.ietf-httpbis-http2bis]
+              Thomson, M. and C. Benfield, "HTTP/2", Work in Progress,
+              Internet-Draft, draft-ietf-httpbis-http2bis-07, 24 January
+              2022, <https://datatracker.ietf.org/doc/html/draft-ietf-
+              httpbis-http2bis-07>.
+
+   [RFC7301]  Friedl, S., Popov, A., Langley, A., and E. Stephan,
+              "Transport Layer Security (TLS) Application-Layer Protocol
+              Negotiation Extension", RFC 7301, DOI 10.17487/RFC7301,
+              July 2014, <https://www.rfc-editor.org/rfc/rfc7301>.
+
+   [I-D.ietf-quic-http]
+              Bishop, M., "Hypertext Transfer Protocol Version 3
+              (HTTP/3)", Work in Progress, Internet-Draft, draft-ietf-
+              quic-http-34, 2 February 2021,
+              <https://datatracker.ietf.org/doc/html/draft-ietf-quic-
+              http-34>.
+
+   [RFC8999]  Thomson, M., "Version-Independent Properties of QUIC",
+              RFC 8999, DOI 10.17487/RFC8999, May 2021,
+              <https://www.rfc-editor.org/rfc/rfc8999>.
+
+   [RFC9000]  Iyengar, J., Ed. and M. Thomson, Ed., "QUIC: A UDP-Based
+              Multiplexed and Secure Transport", RFC 9000,
+              DOI 10.17487/RFC9000, May 2021,
+              <https://www.rfc-editor.org/rfc/rfc9000>.
 
 Acknowledgments
 
@@ -115,6 +243,6 @@ Authors' Addresses
    Email: martin.h.duke@gmail.com
 
 
-   Your Name Here
-   Your Organization Here
-   Email: your.email@example.com
+   Lucas Pardue
+   Cloudflare
+   Email: lucaspardue.24.7@gmail.com
